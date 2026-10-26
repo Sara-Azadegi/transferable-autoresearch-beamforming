@@ -88,7 +88,7 @@ To prevent evaluation leakage, model selection and final performance assessment 
 
 - **Selection set:** Contains 250 channel realizations generated using a fixed, published seed (123). This set guides all keep/revert and model-selection decisions. Path A's champion was selected from 24 adaptive evaluations, while B0 and B2 each underwent one selection evaluation. These scores can be independently recomputed using the released evaluator.
 
-- **Protected-final set:** Contains 250 independent channel realizations, with the seed withheld from the public repository. Each frozen champion was evaluated exactly once, after model selection was complete. These held-out evaluations provide the final performance estimates reported in the paper. The original results are available in [`verify/logs/`](verify/logs/), but reproducing the evaluations requires the unpublished seed.
+- **Protected-final evaluation:** Each frozen champion was evaluated once on 250 independent channel realizations after model selection was complete. The final-test seed was withheld throughout autonomous discovery and is provided for reproducibility of the completed experiments.
 
 ## Reproducibility and Verification
 
