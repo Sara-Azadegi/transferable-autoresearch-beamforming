@@ -1,75 +1,80 @@
 # Discover Small, Deploy Large: Transferable Autoresearch for MU-MIMO Beamforming
 
-An AI coding agent, working under a frozen evaluator and a research charter, discovered a
-percentile-beamforming algorithm on a **2-cell** network. We deployed that discovery **zero-shot**
-on a **7-cell wraparound** network, with no 7-cell training and every learned parameter
-unchanged. We then **fine-tuned** it conventionally. The result is compared with a separate
-autoresearch campaign run directly on the 7-cell network.
+In interference-limited multicell multiuser multiple-input multiple-output (MU-MIMO) networks, beamforming plays a central role in balancing aggregate throughput and cell-edge performance. Percentile-based beamforming provides a flexible framework for this tradeoff by optimizing the aggregate rate of the weakest fraction of users. However, the resulting optimization problem is non-convex and non-smooth, motivating the development of efficient, reusable beamforming policies.
 
-> S. Azadegi Naeini, R. Adve, A. A. Khan, and A. bin Sediq, "Discover Small, Deploy Large:
-> Transferable Autoresearch for MU-MIMO Beamforming," *IEEE WCNC*, 2027.
+Recent advances in agentic AI have enabled autonomous algorithm discovery through autoresearch, where AI agents autonomously discover and refine algorithmic solutions within a controlled experimental framework. An important question, however, remains: **Can an algorithm autonomously discovered for a smaller network be transferred to a larger network without repeating the discovery process?**
+
+This repository accompanies our paper, which investigates **transferable autoresearch** for percentile-based multicell MU-MIMO beamforming through two experimental paths:
 
 | Path | Steps | Folder |
 |---|---|---|
 | **A** | autoresearch directly on 7 cells | [`path_a/`](path_a/) |
 | **B** | autoresearch on 2 cells → zero-shot transfer (**B0**) → conventional fine-tuning (**B2**) | [`path_b/`](path_b/) |
 
-### → [`verify/`](verify/) — check the reported numbers
+The independent campaigns discovered distinct communication-aware beamforming solutions: an interference-aware graph neural network (GNN) at the 2-cell scale and a Transformer-based architecture at the 7-cell scale.
+
+The repository provides the discovered implementations, trained checkpoints, frozen evaluators, experimental records, and verification tools supporting the reported findings.
+
+### → [`verify/`](verify/) — Verify reported results
 
 ```bash
 python verify/verify_results.py
 ```
 
-This recomputes every score below from the original evaluator logs. It needs only the Python
-standard library and ends with `ALL CHECKS PASSED` (full output: `verify/expected_output.txt`).
+This script recomputes the reported results from the released evaluator logs without rerunning the experiments. The external 7-cell MQFT benchmark is excluded. It requires only the Python standard library and ends with `ALL CHECKS PASSED` (full output: `verify/expected_output.txt`).
 
 ### → [`path_a/`](path_a/) and [`path_b/`](path_b/) — inspect and re-run
 
-Each folder has the champion checkpoints, the code that produced them, the campaign log and
-the commands to re-score or retrain.
+Each folder contains the discovered beamforming implementations, trained checkpoints, experiment logs, and instructions for re-evaluation or retraining.
 
-## The result in one table
+## Key Results
 
-Protected 7-cell final test: 250 unseen channels, the **same channels for all three policies**,
-K<sub>q</sub> = 1..35. Normalized SLqP score: the equal-power SVD baseline is 1.0.
+We evaluate all three policies on the same protected-final 7-cell evaluation set, comprising 250 channel realizations and all 35 percentile targets. Performance is measured using the normalized SLqP score, with an equal-power SVD baseline of 1.0.
 
-| Policy | 7-cell training | Final-test score | Gap to Path A |
+| Policy | Target-side training | Final score | Gap to Path A |
 |---|---:|---:|---:|
-| Path A: direct 7-cell autoresearch (Run-18) | 8,766 s | **1.684942** | — |
-| B0: zero-shot transfer of the 2-cell champion | 0 s | **1.595309** | 5.32 % |
-| B2: B0 + conventional fine-tuning | 474 s | **1.674505** | 0.62 % |
+| **Path A:** Direct 7-cell Autoresearch | 8,766 s | **1.685** | — |
+| **B0:** Zero-shot transfer | 0 s | **1.595** | 5.3% |
+| **B2:** Transferred + fine-tuned | 474 s | **1.675** | 0.62% |
 
-* Fine-tuning improves B0 at all 35 K<sub>q</sub> and recovers 88.4 % of its gap to Path A.
-  Path A is higher at K<sub>q</sub> = 1–25 and B2 at K<sub>q</sub> = 26–35.
-* **Cost:** including the 2-cell campaign (10,315 s), Path B used 10,789 s of training in
-  total, 23 % more than Path A. Transfer saves training on the **target** network, not in total.
-* **MQFT reference:**
-  * 2-cell final test: the 2-cell champion scores 1.658049 against MQFT's 1.665520
-    (**99.55 %**). Both values are in `verify/logs/`.
-  * 7-cell, K<sub>q</sub> ∈ {1, 2, 4, 9, 18, 35}: Path A scores 1.920759, which can be
-    verified here. The paper reports MQFT at 1.927 (99.65 %). The MQFT run itself is not part
-    of this repository, so that value is cited from the paper, not reproduced here.
+Fine-tuning improves B0 across all 35 percentile targets and recovers approximately **88.4%** of its performance gap to Path A. Path A performs better for K<sub>q</sub> = 1–25, while B2 performs slightly better for K<sub>q</sub> = 26–35.
 
-The search trajectories of both campaigns (Fig. 3 of the paper) and the data they plot are in
-[`figures/`](figures/).
+Once the 2-cell champion is available, fine-tuning achieves a **94.6% reduction in target-side training time** compared with direct 7-cell Autoresearch, excluding the initial 2-cell discovery cost.
 
-## The two networks
+### Comparison with MQFT
 
-| | 2-cell (discovery) | 7-cell (target) |
+Both autonomously discovered champions approach the performance of the multidimensional quadratic fractional transform (MQFT), a strong iterative optimization benchmark.
+
+| Network | Autoresearch | MQFT | Ratio to MQFT |
+|---|---:|---:|---:|
+| 2-cell discovery network | 1.658 | 1.666 | **99.55%** |
+| 7-cell network (six percentile targets) | 1.921 | 1.927 | **99.65%** |
+
+The 7-cell MQFT comparison uses K<sub>q</sub> ∈ {1, 2, 4, 9, 18, 35}. Its MQFT reference value is reported in the paper but cannot be independently reproduced from this repository, since the corresponding MQFT records are not included. The percentages above are calculated from the original full-precision scores.
+
+The search trajectories for both campaigns (Fig. 3 of the paper) and their underlying data are available in [`figures/`](figures/).
+
+## Network Configurations
+
+We consider two multicell MU-MIMO network configurations for autonomous discovery and cross-scale transfer.
+
+| Parameter | 2-cell (Discovery) | 7-cell (Target) |
 |---|---|---|
-| Topology | 2 adjacent hexagonal cells, no wraparound | 7 hexagonal cells, toroidal wraparound |
-| Users | 4 per cell (K = 8) | 5 per cell (K = 35) |
-| Common | M = 8 BS antennas, N = 2 receive antennas, one stream per user, 43 dBm per BS, Rayleigh fading, perfect CSI, MMSE receivers | same |
+| Topology | Two adjacent hexagonal cells, no wraparound | Seven hexagonal cells with toroidal wraparound |
+| Users per cell | 4 | 5 |
+| Total users | 8 | 35 |
 
-Scores from the two networks are not comparable with each other.
+**Shared system assumptions:** Both networks employ 8 transmit antennas per base station (BS), 2 receive antennas per user, one data stream per user, a 43-dBm per-BS power constraint, Rayleigh fading, perfect channel-state information (CSI), and analytical minimum mean-squared error (MMSE) receive processing.
 
-## The evaluator is the whole argument
+**Evaluation note:** The two network configurations use separate frozen evaluators. Consequently, their absolute normalized SLqP scores should not be directly compared across scales.
 
-Every candidate was scored by evaluators that were frozen and SHA-256 pinned before the first
-experiment ([`evaluator/`](evaluator/)). The agent could change only `train.py`. In the 7-cell
-director (`director_rescore.py`), Process A runs the candidate's code to produce beamformers.
-Process B, which never imports that code, regenerates the channels and computes the score.
-Check your copy:
+## Frozen Evaluators and Evaluation Integrity
+
+To ensure reliable and reproducible evaluation, all candidates were assessed using frozen, SHA-256-pinned evaluators ([`evaluator/`](evaluator/)). The autonomous agent was permitted to modify only `train.py`.
+
+For the 7-cell network, `director_rescore.py` separates candidate execution from authoritative evaluation. **Process A** executes the candidate code to generate beamformers, while **Process B** independently regenerates the channels and computes the scores without importing candidate code.
+
+The integrity of the frozen evaluator files can be checked using:
 
 ```bash
 sha256sum evaluator/7cell/prepare7.py evaluator/7cell/director_rescore.py
@@ -77,39 +82,44 @@ sha256sum evaluator/7cell/prepare7.py evaluator/7cell/director_rescore.py
 # a61f31a62f4632c5843faf567e1fa680502ffbeb4aabc619d2f8c8ae9e95b516  evaluator/7cell/director_rescore.py
 ```
 
-**Selection vs. protected final test.**
+### Model Selection and Protected-Final Evaluation
 
-* The *selection set* (250 channels, seed 123, built into the evaluator) drove every keep/revert
-  and model-selection decision. Path A's selection score is the best of 24 adaptive
-  evaluations; B0 and B2 had one each. Anyone can re-score on it.
-* The *protected final set* (250 channels from a seed held by the experimenter and not
-  published) was used **once** per frozen champion, after selection was over. Only these scores
-  are unbiased; the final tests cannot be re-run, and their original logs are in `verify/logs/`.
+To prevent evaluation leakage, model selection and final performance assessment use separate, fixed channel sets.
 
-## What can be reproduced from this repository
+- **Selection set:** Contains 250 channel realizations generated using a fixed, published seed (123). This set guides all keep/revert and model-selection decisions. Path A's champion was selected from 24 adaptive evaluations, while B0 and B2 each underwent one selection evaluation. These scores can be independently recomputed using the released evaluator.
 
-| Claim | How | Status |
+- **Protected-final set:** Contains 250 independent channel realizations, with the seed withheld from the public repository. Each frozen champion was evaluated exactly once, after model selection was complete. These held-out evaluations provide the final performance estimates reported in the paper. The original results are available in [`verify/logs/`](verify/logs/), but reproducing the evaluations requires the unpublished seed.
+
+## Reproducibility and Verification
+
+The repository provides tools to verify the reported results and instructions for re-evaluating or retraining the discovered beamforming policies. The verification status of each component is summarized below.
+
+| Component | Verification method | Status |
 |---|---|---|
-| All final-test and selection scores, gaps and per-K<sub>q</sub> comparisons | `verify/verify_results.py` (recomputed from the original evaluator logs; no model is run) | checked for this release |
-| Selection-set scores of Path A, B0 and B2 | frozen director on the released checkpoints (`path_a/`, `path_b/`) | commands provided; not re-run for this release |
-| Training of Path A Run-18, the 2-cell champion and B2 | `train.py` in each campaign folder | commands provided; not re-run; not expected to be bit-exact (deterministic algorithms were not enforced) |
-| Protected final-test scores | needs the unpublished seed | logs only |
-| 7-cell MQFT reference (1.927) | — | reported in the paper; not in this repository |
+| Reported selection and final-test scores, performance gaps, and per-\(K_q\) comparisons | Recomputed from released evaluator logs using `verify/verify_results.py` | **Verified from logs** |
+| Selection-set evaluation of Path A, B0, and B2 | Frozen evaluator and released checkpoints | Commands provided; not re-executed |
+| Training of Path A, the 2-cell champion, and B2 | Training scripts in the respective campaign directories | Commands provided; bit-exact reproduction not guaranteed |
+| Protected-final evaluations | Original evaluator logs | Results available; evaluation seed not released |
 
-## Environment
+**Note:** Verification from logs confirms consistency with the recorded experimental results but does not constitute independent re-execution of the experiments.
 
-Intel Core i7-14700 (CPU only, 20 PyTorch threads), Windows 11, Python 3.12.10,
-PyTorch 2.14.1+cpu and NumPy 2.5.1 (`pip install -r requirements.txt`). The frozen time limits
-(600 s per training run, 25 s per 7-cell evaluation) were set for this machine, so slower
-hardware may fail them.
+## Computational Environment
 
-## AI agent
+Experiments were conducted on a Windows 11 system with an Intel Core i7-14700 CPU (20 PyTorch threads), Python 3.12.10, PyTorch 2.14.1+cpu, and NumPy 2.5.1.
 
-Both discovery campaigns, the zero-shot adaptation and the execution of the fixed fine-tuning
-recipe were carried out with Anthropic's Claude Code using Claude Opus 5.5
-(`claude-opus-5-5`). The human experimenter froze the charters and evaluators, approved every
-stage and ran every protected final test. Other agentic tools could in principle drive the same
-framework; this has not been tested.
+Dependencies can be installed using:
+
+`pip install -r requirements.txt`
+
+The frozen computational limits (600 s per training run and 25 s per 7-cell evaluation) were calibrated for this hardware. Consequently, slower systems may exceed these limits.
+
+## AI Agent
+
+Both autonomous discovery campaigns, mechanical zero-shot transfer, and execution of the predefined fine-tuning procedure used Anthropic's Claude Code with Claude Opus 5.5 (`claude-opus-5-5`).
+
+The human experimenter established the frozen research charters and evaluators, authorized each experimental stage, and conducted all protected-final evaluations.
+
+The framework could, in principle, operate with other agentic AI tools offering comparable capabilities, although cross-agent generality has not been experimentally evaluated.
 
 ## Citing
 
@@ -123,5 +133,3 @@ framework; this has not been tested.
 ```
 
 ## License
-
-To be added.
