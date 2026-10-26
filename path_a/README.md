@@ -23,10 +23,10 @@ Its main components include:
 |---|---|
 | Network | 7-cell wraparound, 35 users |
 | Initial candidate | Generic MLP |
-| Launched runs | 24, including the initial seed |
+| Campaign runs | 24 runs (initial seed + 23 agent-launched experiments) |
 | Architecture families | 3 |
-| Maximum permitted experiments | 50 |
-| Commit threshold | \(S_{\mathrm{new}} > S_{\mathrm{best}} + 0.0005\) |
+| Maximum agent-launched experiments | 50 |
+| Commit threshold | $S_{\mathrm{new}} > S_{\mathrm{best}} + 0.0005$ |
 | Cumulative candidate-training time | 8,766 s |
 | Stopping criterion | Approved early stop after five consecutive non-improving runs |
 

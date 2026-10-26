@@ -96,7 +96,7 @@ The repository provides tools to verify the reported results and instructions fo
 
 | Component | Verification method | Status |
 |---|---|---|
-| Reported selection and final-test scores, performance gaps, and per-\(K_q\) comparisons | Recomputed from released evaluator logs using `verify/verify_results.py` | **Verified from logs** |
+| Reported selection and final-test scores, performance gaps, and per-$K_q$ comparisons | Recomputed from released evaluator logs using `verify/verify_results.py` | **Verified from logs** |
 | Selection-set evaluation of Path A, B0, and B2 | Frozen evaluator and released checkpoints | Commands provided; not re-executed |
 | Training of Path A, the 2-cell champion, and B2 | Training scripts in the respective campaign directories | Commands provided; bit-exact reproduction not guaranteed |
 | Protected-final evaluations | Original evaluator logs | Results available; evaluation seed not released |
