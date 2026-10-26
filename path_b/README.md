@@ -1,74 +1,162 @@
-# Path B: discover small (2 cells), deploy large (7 cells)
+# Path B — Transferable Autoresearch: Discover Small, Deploy Large
 
-| Step | Folder | Kind of work | 7-cell training |
+Path B investigates whether a beamforming algorithm autonomously discovered in a smaller **2-cell network** can be transferred to a **7-cell wraparound network** without repeating autonomous discovery.
+
+The experimental workflow consists of three stages:
+
+| Stage | Description | Folder | 7-cell training |
 |---|---|---|---:|
-| 1 | `1_discovery_2cell/` | **Autonomous discovery** by the AI agent on the 2-cell network | — |
-| 2 | `2_zero_shot_B0/` | **Mechanical transfer** of the frozen 2-cell champion | 0 s |
-| 3 | `3_finetune_B2/` | **Conventional fine-tuning** with one pre-registered recipe; no agent-driven search | 474 s |
+| **Discovery** | Autonomous algorithm discovery on the 2-cell network | [`1_discovery_2cell/`](1_discovery_2cell/) | — |
+| **B0: Zero-shot transfer** | Mechanical transfer of the frozen 2-cell champion to 7 cells | [`2_zero_shot_B0/`](2_zero_shot_B0/) | 0 s |
+| **B2: Fine-tuning** | Conventional parameter adaptation using a pre-registered procedure, without repeating Autoresearch | [`3_finetune_B2/`](3_finetune_B2/) | 474 s |
 
-## 1. 2-cell discovery
+## 1. Autonomous Discovery on the 2-Cell Network
 
-* **Network:** 2 cells, 4 users per cell, K<sub>q</sub> = 1..8, no wraparound.
-* **Charter and evaluator:** `campaign/program.md` and `campaign/prepare.py`, identical to
-  `../evaluator/2cell/`.
-* **Campaign:** seed run 0 plus 25 agent-launched experiments: 17 COMMIT, 8 REVERT and 1 FAIL
-  (the training time limit). Commit rule δ = 0.000289. 10,315 s of training in total.
-* **Champion:** `campaign/baby_champion_run25.pt`, an `InterferenceGNN` with 984,006
-  parameters: a user-centric GNN with separate same-cell and cross-cell message passing, a
-  structured RZF/SLNR-like beamformer, and MMSE-based transmit/receive refinement. Its source is
-  `campaign/train.py`, which includes the agent's changelog. `log.csv` lists all 26 runs.
-* **Scores (2-cell system):** selection 1.644191; protected final test **1.658049**
-  (MQFT reference 1.665520).
-* **Retraining:** `cd 1_discovery_2cell/campaign && python train.py` re-runs the Run-25 recipe
-  and writes `last_model.pt`. Not re-run for this release.
+The discovery campaign operates on two adjacent non-wraparound cells, each serving four users, and optimizes the percentile-beamforming objective across all eight percentile targets.
 
-## 2. Zero-shot transfer (B0)
+Under the frozen research charter (`campaign/program.md`) and evaluator (`campaign/prepare.py`), the autonomous agent explores beamforming algorithms through controlled experiments.
 
-The 2-cell champion runs on the 7-cell network with **all 62 learned tensors and the
-architecture unchanged**: 0 optimizer steps and no 7-cell data. Only mechanical adaptations
-were made (`transfer_Z1-Z4.diff`):
+### Discovered Architecture
 
-* **Z1:** the 7-cell evaluator API.
-* **Z2:** the "other BS" feature becomes the summed effective gain from all non-serving BSs
-  (identical to the original feature when B = 2).
-* **Z3:** a strict `load_candidate` replaces the training driver.
-* **Z4:** an inference-speed rewrite (maximum relative beam difference 1.15·10⁻⁵).
+The campaign produced an **interference-aware graph neural network (GNN)**, combining:
 
-`evaluation_package/` is the exact package that was evaluated: the frozen files plus `train.py`.
+- User-centric message passing with separate same-cell and inter-cell aggregation.
+- A structured RZF/SLNR-like beamformer.
+- MMSE-based transmit/receive refinement.
+
+**Selected champion:** `InterferenceGNN` (Run-25), with 984,006 trainable parameters, stored in `campaign/baby_champion_run25.pt`.
+
+### Campaign Summary
+
+| Metric | Recorded result |
+|---|---|
+| Network | 2 cells, 8 users |
+| Recorded runs | 26, including the initial seed |
+| Experiment outcomes | 17 COMMIT, 8 REVERT, 1 FAIL |
+| Commit threshold | 0.000289 |
+| Cumulative training time | 10,315 s |
+| Model-selection score | 1.644 |
+| Protected-final score | **1.658** |
+| MQFT reference | 1.666 |
+
+The champion achieves **99.55% of the MQFT reference score** on the protected-final evaluation set.
+
+The implementation and experimental changelog are preserved in `campaign/train.py`, while `log.csv` records the campaign history.
+
+**Retraining command** (from `path_b/`):
+
+```bash
+cd 1_discovery_2cell/campaign
+python train.py
+```
+
+This executes the archived Run-25 training procedure and writes `last_model.pt`. The command was not re-executed during repository preparation.
+
+## 2. Zero-Shot Transfer to the 7-Cell Network (B0)
+
+The frozen 2-cell champion is transferred to the 7-cell network **without target-side training, optimizer updates, or changes to its 62 learned parameter tensors**.
+
+Only mechanical compatibility adaptations are introduced, documented in `transfer_Z1-Z4.diff`:
+
+| Step | Adaptation |
+|---|---|
+| Z1 | Adaptation to the frozen 7-cell evaluator interface |
+| Z2 | Generalization of the non-serving BS feature to the summed effective gain from all non-serving BSs, reducing to the original feature for two cells |
+| Z3 | Strict checkpoint loading through `load_candidate` |
+| Z4 | Inference-speed optimization, with a verified maximum relative beam difference of \(1.15\times10^{-5}\) |
+
+The discovered GNN architecture and learned weights remain unchanged. The transfer does not use 7-cell performance feedback to redesign the algorithm.
+
+The `evaluation_package/` directory contains the evaluated B0 implementation and frozen evaluator files.
+
+### Re-Evaluation
+
+From `path_b/`:
 
 ```bash
 cd 2_zero_shot_B0/evaluation_package
 python director_rescore.py ../../1_discovery_2cell/campaign/baby_champion_run25.pt --hash-file ../../../evaluator/7cell/DIRECTOR_HASHES.sha256
-# expected: DIRECTOR_HELDOUTSCORE 1.595487202664
 ```
 
-**Scores:** selection 1.595487202664; protected final test **1.595308837276**.
-The command was not re-run for this release.
+Expected selection-set output:
 
-## 3. Conventional fine-tuning (B2)
+```text
+DIRECTOR_HELDOUTSCORE 1.595487202664
+```
 
-The fine-tuning recipe was fixed before the single run:
+| Evaluation | Normalized SLqP score |
+|---|---:|
+| Model-selection score | 1.595 |
+| Protected-final score | **1.595** |
 
-* initialization `inputs/baby_run25.pt` (the 2-cell champion; its hash is checked in code);
-* 1000 updates × 64 fresh 7-cell training channels (stream seed 789);
-* Adam with peak learning rate 2·10⁻⁴, 100-update linear warm-up, then cosine decay;
-* no clipping; architecture unchanged.
+The command was not re-executed during repository preparation.
 
-The recorded run took 474.09 s (`train_stdout.log`).
+## 3. Conventional Fine-Tuning on the 7-Cell Network (B2)
+
+Following zero-shot evaluation, the transferred champion undergoes **conventional parameter fine-tuning**, retaining its discovered architecture, feature representation, beamformer construction, and inference procedure.
+
+The fine-tuning recipe was fixed before execution and did not involve a new autonomous algorithm-discovery campaign.
+
+### Fine-Tuning Configuration
+
+| Parameter | Configuration |
+|---|---|
+| Initialization | Frozen 2-cell champion (`inputs/baby_run25.pt`) |
+| Optimization | Adam |
+| Training updates | 1,000 |
+| Training channels per update | 64 fresh 7-cell realizations |
+| Training stream seed | 789 |
+| Peak learning rate | \(2\times10^{-4}\) |
+| Learning-rate schedule | 100-update linear warm-up followed by cosine decay |
+| Gradient clipping | None |
+| Architecture | Unchanged |
+| Recorded training time | 474 s |
+
+The checkpoint initialization hash is verified by the training code, and the recorded run output is available in `train_stdout.log`.
+
+### Training and Re-Evaluation
+
+From `path_b/`:
 
 ```bash
 cd 3_finetune_B2/campaign
-python -B train.py        # writes last_model.pt (refuses to overwrite)
+
+# Execute the archived fine-tuning procedure
+python -B train.py
+
+# Re-evaluate the newly trained model
 python director_rescore.py last_model.pt --hash-file ../../../evaluator/7cell/DIRECTOR_HASHES.sha256
-# Released checkpoint; expected DIRECTOR_HELDOUTSCORE 1.676352664207:
+
+# Re-evaluate the released B2 champion
 python director_rescore.py ../s2ft1_champion.pt --hash-file ../../../evaluator/7cell/DIRECTOR_HASHES.sha256
 ```
 
-**Scores:** selection 1.676352664207; protected final test **1.674505154990**.
-None of these commands were re-run for this release, and retraining is not expected to be
-bit-exact.
+Expected selection-set output for the released B2 champion:
 
-**About `s2ft1_champion.pt`:** this is a release copy of the evaluated checkpoint (SHA-256
-`3e323b13…c2fc9`). A local file path was removed from its `init_checkpoint` metadata field.
-All 62 weight tensors are byte-identical to the evaluated checkpoint; the release copy's
-SHA-256 is `c62c0754…c53f`.
+```text
+DIRECTOR_HELDOUTSCORE 1.676352664207
+```
+
+| Evaluation | Normalized SLqP score |
+|---|---:|
+| Model-selection score | 1.676 |
+| Protected-final score | **1.675** |
+
+Fine-tuning improves zero-shot performance across all 35 percentile targets and brings the transferred champion within **0.62% of independent 7-cell Autoresearch (Path A)**.
+
+### Checkpoint Integrity
+
+The released `s2ft1_champion.pt` is a sanitized copy of the evaluated B2 checkpoint.
+
+Only the local path stored in the `init_checkpoint` metadata field was changed. **All 62 learned parameter tensors remain byte-identical** to the original evaluated checkpoint.
+
+The original and release-copy SHA-256 hashes differ because of this metadata modification. The verification record is retained separately from the public repository.
+
+## Reproducibility Notes
+
+- Selection-set re-evaluation commands are provided but were not re-executed during repository preparation.
+- Retraining is not guaranteed to produce bit-identical results because deterministic algorithms were not enforced.
+- Protected-final scores are supported by the original evaluator logs; the protected evaluation seed is not released.
+- Numerical results can be independently checked against the released logs using [`../verify/`](../verify/).
+
+Absolute scores from the 2-cell and 7-cell evaluators should not be compared directly because they correspond to different network configurations.
