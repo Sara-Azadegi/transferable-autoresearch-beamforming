@@ -1,0 +1,245 @@
+--- baby_run25/train.py (Baby Run-25 original)
++++ campaign/train.py (zero-shot Z1-Z4, evaluated)
+@@ -1,4 +1,30 @@
+ """
++ZERO-SHOT 7-CELL ADAPTATION of the Baby run-25 champion (inference only).
++
++Mechanical compatibility changes vs the Baby run-25 train.py (nothing else edited):
++  Z1. evaluator API: `from prepare import ...` -> `from prepare7 import ...`,
++      dropping the two names outside the prepare7 whitelist (SQRT_P_MAX_W was
++      unused; evaluate_selection was only called by the training driver).
++  Z2. node feature xg_oth: the Baby code `xg[:, :, c, 1 - c]` is only valid for
++      B=2 (it silently wraps to negative BS indices for B>2). It is now the log
++      effective gain aggregated over ALL non-serving BSs (linear-domain sum,
++      same log10(. * q0/sigma^2 + 1e-30)/4 scaling); for B=2 the sum has a
++      single term, so it equals the Baby feature exactly.
++  Z3. training driver train_once() removed (no training / optimizer in this
++      file); load_candidate(checkpoint_path) added for director_rescore.py; it
++      loads the unchanged Baby checkpoint with strict=True.
++  Z4. inference speed only (35x35 user pairs instead of 8x8), same function:
++      no-grad message passing builds relu(a_i + b_j + W_e e_ij) in one reused
++      cache-sized tile per PAIR_BLOCK samples (same addition order, bias-free
++      msg_e as addmm_), the same-cell/other-cell masked means as one batched
++      matmul with the unchanged mean weights, msg_out once on both means, and a
++      vectorized own/other-BS log-q selection in to_beams. Equal to the Z1-Z3
++      implementation up to float rounding (verified on training-stream channels).
++Every other line (model, features, structured layer, physics) is the Baby code,
++written in terms of B / K_USERS / K_TOTAL and now instantiated from prepare7.
++
++Original Baby docstring follows.
++
+ train.py -- ONLY mutable research source file for Baby Percentile Beamforming.
+ 
+ Initial seed (C3.1-C3.19, frozen before the campaign):
+@@ -34,7 +60,7 @@
+ import torch.nn as nn
+ torch.set_num_threads(20)
+ 
+-from prepare import (
++from prepare7 import (
+     B,
+     BANDWIDTH_HZ,
+     K_TOTAL,
+@@ -43,11 +69,9 @@
+     N_RX,
+     NOISE_POWER_W,
+     P_MAX_W,
+-    SQRT_P_MAX_W,
+     SEED_TRAIN,
+     TORCH_SEED,
+     TrainingChannelStream,
+-    evaluate_selection,
+ )
+ 
+ # =============================================================================
+@@ -237,6 +261,7 @@
+ NODE_FEAT = 7          # xg own BS, xg other BS, SLNR-init SE, Kq/8, + exp 7 rank feats
+ EDGE_FEAT = 5          # corr at BS(i), corr at BS(j), same-cell, xg_{i<-BS(j)}, xg_{j<-BS(i)}
+ EDGE_FEAT2 = EDGE_FEAT + 2   # Exp 20: + post-combining INR j->i and i->j under stage-1 beams
++PAIR_BLOCK = 10              # Zero-shot Z4: samples per cache-sized pair tile (speed only)
+ 
+ 
+ def rank_features(se: torch.Tensor, kq: torch.Tensor) -> torch.Tensor:
+@@ -339,7 +364,12 @@
+             # Node features, nodes i = k*B + c.
+             idx_c = torch.arange(B, device=DEVICE)
+             xg_own = xg[:, :, idx_c, idx_c]                                 # [T,k,c]
+-            xg_oth = xg[:, :, idx_c, 1 - idx_c]
++            # Zero-shot Z2: aggregate gain from all non-serving BSs (B-generic);
++            # for B=2 this is exactly the Baby xg[:, :, idx_c, 1 - idx_c].
++            gain = abs2(G).sum(dim=-1)                                      # [T,k,c,b]
++            not_own = 1.0 - torch.eye(B, dtype=gain.dtype, device=DEVICE)   # [c,b]
++            gain_oth = (gain * not_own).sum(dim=-1)                         # [T,k,c]
++            xg_oth = torch.log10(gain_oth * (REG_Q0_W / NOISE_POWER_W) + 1e-30) / 4.0
+             xk = (kq.to(PHYS_REAL_DTYPE) / float(K_TOTAL)).view(batch, 1, 1).expand(batch, K_USERS, B)
+             # Exp 7: Kq-relative rank of each user's SLNR-init SE (0 = weakest).
+             rank_feat = rank_features(xs.reshape(batch, K_TOTAL), kq)               # [T,8,3]
+@@ -348,30 +378,49 @@
+             edge = self._edge_features(G, xg)
+ 
+         h = self.enc(node.to(TRAIN_REAL_DTYPE))                              # [T,8,H]
+-        n_same = self.mask_same.sum(dim=1).view(1, K_TOTAL, 1)
+-        n_oth = self.mask_other.sum(dim=1).view(1, K_TOTAL, 1)
+-        w_same = (self.mask_same / self.mask_same.sum(dim=1, keepdim=True)).view(1, K_TOTAL, K_TOTAL, 1)
+-        w_oth = (self.mask_other / self.mask_other.sum(dim=1, keepdim=True)).view(1, K_TOTAL, K_TOTAL, 1)
++        w_same = self.mask_same / self.mask_same.sum(dim=1, keepdim=True)    # [i,j]
++        w_oth = self.mask_other / self.mask_other.sum(dim=1, keepdim=True)   # [i,j]
++        # Z4: both masked-mean weight rows stacked so one batched matmul reads r once
++        # (same-cell and other-cell means, same weights as the Baby multiply-sum).
++        w_agg = torch.stack((w_same, w_oth), dim=1)                         # [i,2,j]
++        def pair_means(a, b, edge, w_e, buf):
++            """Z4: masked means over j of relu(a_i + b_j + W_e e_ij) -> [T,i,2,H],
++            built tile-by-tile over samples in one reused cache-sized buffer, with
++            the same (a + b) + W_e e order and the bias-free msg_e as addmm_."""
++            T = a.shape[0]
++            out = a.new_empty((T, K_TOTAL, 2, a.shape[-1]))
++            for s in range(0, T, PAIR_BLOCK):
++                e = min(s + PAIR_BLOCK, T)
++                r = torch.add(a[s:e].unsqueeze(2), b[s:e].unsqueeze(1), out=buf[:e - s])
++                r.view(-1, r.shape[-1]).addmm_(edge[s:e].reshape(-1, edge.shape[-1]), w_e.t())
++                torch.matmul(w_agg, r.relu_(), out=out[s:e])
++            return out
++
+         def mp(h, edge, mi, mj, me, mo, up):
+             edge = edge.to(TRAIN_REAL_DTYPE)
++            buf = None
++            if not torch.is_grad_enabled():
++                buf = h.new_empty((min(batch, PAIR_BLOCK), K_TOTAL, K_TOTAL, h.shape[-1]))
+             for l in range(len(mi)):
+-                pre = mi[l](h).unsqueeze(2) + mj[l](h).unsqueeze(1) + me[l](edge)   # [T,i,j,H]
+-                r = torch.relu(pre)
++                if buf is None:   # autograd path: same math without in-place tiling
++                    r = torch.relu(mi[l](h).unsqueeze(2) + mj[l](h).unsqueeze(1) + me[l](edge))
++                    agg = torch.matmul(w_agg, r)                                 # [T,i,2,H]
++                else:
++                    agg = pair_means(mi[l](h), mj[l](h), edge, me[l].weight, buf)
+                 # The linear msg_out commutes with the masked mean, so it is applied
+                 # after aggregation (identical function, ~8x fewer FLOPs).
+-                # Masked means as broadcast multiply-sum (avoids einsum permute copies).
+-                agg_s = mo[l]((r * w_same).sum(dim=2))
+-                agg_o = mo[l]((r * w_oth).sum(dim=2))
+-                h = h + up[l](torch.cat((h, agg_s, agg_o), dim=-1))
++                # Z4: applied once to the stacked (same-cell, other-cell) means.
++                agg = mo[l](agg)
++                h = h + up[l](torch.cat((h, agg.flatten(2)), dim=-1))            # (h, agg_s, agg_o)
+             return h
+ 
++        own_bs = torch.eye(B, dtype=torch.bool, device=DEVICE)                 # [c,b]
+         def to_beams(out, Geff):
+             out = out.reshape(batch, K_USERS, B, 3)                          # node (k,c)
+             pow_logits = out[..., 0]                                          # [T,k,b]
+             # log_q[t,k,c,b]: channel 1 at the user's own BS (b == c), channel 2 otherwise.
+-            log_q = torch.stack(
+-                [torch.stack([out[:, :, c, 1] if b == c else out[:, :, c, 2] for b in range(B)], dim=-1)
+-                 for c in range(B)], dim=2)
++            # Z4: vectorized selection (replaces the per-(c,b) Python stack loop).
++            log_q = torch.where(own_bs, out[..., 1:2], out[..., 2:3])
+             return structured_beams(Geff, log_q, pow_logits)
+ 
+         def alternate(out, Geff, n):
+@@ -456,91 +505,25 @@
+ 
+ 
+ # =============================================================================
+-# One fixed-budget seed experiment
++# Zero-shot Z3: director inference interface (no training in this file)
+ # =============================================================================
+-def train_once() -> Tuple[nn.Module, dict]:
+-    # C2.31: same learning randomness every complete experiment.
+-    torch.manual_seed(RUN_TORCH_SEED)
+-
+-    print(f"FAMILY {FAMILY}")
+-    print(f"SEEDS torch={RUN_TORCH_SEED} train={RUN_TRAIN_SEED}")
+-
++def load_candidate(checkpoint_path: str) -> nn.Module:
++    """Rebuild the Baby run-25 InterferenceGNN at the prepare7 sizes and load its
++    trained weights unchanged (strict=True: all 62 tensors, no missing/extra keys)."""
++    checkpoint = torch.load(checkpoint_path, map_location=DEVICE, weights_only=True)
++    if checkpoint.get("model_class") != "InterferenceGNN":
++        raise RuntimeError(f"unexpected model_class {checkpoint.get('model_class')!r}")
+     model = InterferenceGNN().to(device=DEVICE, dtype=TRAIN_REAL_DTYPE)
+-    optimizer = torch.optim.Adam(model.parameters(), lr=LR)  # no weight decay
+-    # Exp 4: cosine LR decay from LR to 0 over STEPS (one scheduler step per update).
+-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=STEPS, eta_min=0.0)
+-    channels = TrainingChannelStream(seed=RUN_TRAIN_SEED)                        # resets SEED_TRAIN=789
+-
+-    # Separate deterministic generator for Kq task draws. It is seeded from the
+-    # already-frozen TORCH_SEED so identical train.py runs reproduce the same task
+-    # sequence without perturbing model initialization.
+-    kq_gen = torch.Generator(device="cpu").manual_seed(RUN_TORCH_SEED)
+-
+-    model.train()
+-    train_t0 = time.perf_counter()
+-    for step in range(1, STEPS + 1):
+-        H = channels.sample(BATCH, dtype=torch.complex128).to(DEVICE)
+-        Kq = torch.randint(1, K_TOTAL + 1, (BATCH,), generator=kq_gen, dtype=torch.long)
+-
+-        # Exp 2: per-Kq normalizer = EMA of the baseline's batch-mean SLqP at each
+-        # Kq on the same training channels (mirrors the per-Kq score ratio).
+-        with torch.no_grad():
+-            base_rates = training_rates_mbps(H, baseline_beams(H))
+-            base_prefix = torch.cumsum(torch.sort(base_rates.reshape(BATCH, K_TOTAL), dim=-1).values, dim=-1)
+-            batch_base = base_prefix.mean(dim=0)                    # [8]
+-            base_ema = batch_base if step == 1 else NORM_EMA * base_ema + (1.0 - NORM_EMA) * batch_base
+-
+-        V = model(H, Kq)
+-        rates = training_rates_mbps(H, V)
+-        slqp = training_slqp(rates, Kq)
+-        loss = -(slqp / base_ema[Kq - 1]).mean()                 # score-aligned normalized SLqP
+-
+-        if not torch.isfinite(loss):
+-            raise RuntimeError(f"training failed: non-finite loss at step {step}")
+-
+-        optimizer.zero_grad(set_to_none=True)
+-        loss.backward()                                          # no clipping
+-        optimizer.step()
+-        scheduler.step()
+-
+-        train_elapsed = time.perf_counter() - train_t0
+-        if train_elapsed > TRAIN_TIME_LIMIT_S:
+-            print(f"TRAIN_S {train_elapsed:.6f}")
+-            raise RuntimeError(
+-                f"training-time violation: {train_elapsed:.3f}s > {TRAIN_TIME_LIMIT_S:.1f}s"
+-            )
+-
+-        if step == 1 or step % 100 == 0 or step == STEPS:
+-            print(
+-                f"STEP {step:04d}/{STEPS}  LOSS {loss.item():.6f}  "
+-                f"MEAN_SLQP_MBPS {slqp.mean().item():.6f}"
+-            )
+-
+-    train_s = time.perf_counter() - train_t0
+-    print(f"TRAIN_S {train_s:.6f}")
+-
+-    # C3.14: ONLY the final seed checkpoint is judged.
+-    result = evaluate_selection(model, verbose=True)
+-
+-    # C3.19: save final candidate, no intermediate held-out checkpoint selection.
+-    checkpoint = {
+-        "model_class": "InterferenceGNN",
+-        "state_dict": model.state_dict(),
+-        "heldoutscore": result["HELDOUTSCORE"],
+-        "steps": STEPS,
+-        "batch": BATCH,
+-        "lr": LR,
+-        "torch_seed": RUN_TORCH_SEED,
+-        "train_seed": RUN_TRAIN_SEED,
+-        "train_s": train_s,
+-        "family": FAMILY,
+-    }
+-    torch.save(checkpoint, "last_model.pt")
+-    return model, result
++    model.load_state_dict(checkpoint["state_dict"], strict=True)
++    model.eval()
++    return model
+ 
+ 
+ if __name__ == "__main__":
+-    train_once()
++    raise SystemExit(
++        "train_zero_shot.py is inference-only (zero-shot transfer); score it with "
++        "director_rescore.py via load_candidate()."
++    )
+ 
+ 
+ # =============================================================================

@@ -1,0 +1,13 @@
+# Authoritative campaign PyTorch version from the designated Baby/7-cell CPU setup.
+# The +cpu wheel may require the official PyTorch CPU package index.
+torch==2.14.1+cpu
+
+# Exact versions of these packages were not recorded in the Baby campaign.
+# Before experiment 1, the director must record the installed versions and keep
+# that environment unchanged for both Path A and Path B; do not invent pins.
+numpy
+
+# Optional; required only for offline MQFT reference:
+cvxpy
+clarabel
+scs

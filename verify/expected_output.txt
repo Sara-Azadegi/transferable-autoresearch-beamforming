@@ -1,0 +1,21 @@
+Model                            Set         Score (logged)  Mean of per-Kq  Check
+2-cell champion (Run-25)         selection         1.644191        1.644191  OK
+2-cell champion (Run-25)         final             1.658049        1.658049  OK
+Path A: direct 7-cell (Run-18)   selection   1.686715818726        1.686716  OK
+Path A: direct 7-cell (Run-18)   final       1.684941922076        1.684942  OK
+B0: zero-shot transfer           selection   1.595487202664        1.595487  OK
+B0: zero-shot transfer           final       1.595308837276        1.595309  OK
+B2: transfer + fine-tuning       selection   1.676352664207        1.676353  OK
+B2: transfer + fine-tuning       final        1.67450515499        1.674505  OK
+
+Path A, B0 and B2 final tests used identical channels (35/35 baseline values equal): YES
+
+Protected 7-cell final test:
+  gap to Path A:   B0 5.32 %   B2 0.62 %
+  B2 - B0 = +0.079196  (B2 higher at 35/35 Kq; recovers 88.4 % of B0's gap)
+  A - B2  = +0.010437  (Path A higher at 25/35 Kq)
+  Path A mean over Kq (1, 2, 4, 9, 18, 35): 1.920759  (7-cell MQFT reference: reported in the paper, not in this repository)
+
+2-cell final test: champion 1.658049, MQFT reference 1.665520 [OK] -> 99.55 % of MQFT
+
+ALL CHECKS PASSED

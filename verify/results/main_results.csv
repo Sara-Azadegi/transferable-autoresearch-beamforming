@@ -1,0 +1,5 @@
+experiment,label,network,kq_tasks,evaluation_system,selection_score,final_test_score,final_minus_selection,final_inference_s,final_load_s,final_test_dataset
+1,Baby 2-cell Autoresearch (Run-25),"2-cell, no wraparound, 8 users",1..8,own 2-cell evaluator (prepare.py),1.644191,1.658049,+0.013858,0.371141,n/a (in-process),2-cell final set (different system)
+2,Direct 7-cell Autoresearch (Run-18),"7-cell wraparound, 35 users",1..35,frozen 7-cell director (prepare7.py),1.686715818726,1.684941922076,-0.001773896650,7.060436,0.017747,identical protected 7-cell final set (35/35 BASE_MBPS identical)
+3,Zero-shot 7-cell transfer (B0),"7-cell wraparound, 35 users",1..35,frozen 7-cell director (prepare7.py),1.595487202664,1.595308837276,-0.000178365388,6.839348,0.019196,identical protected 7-cell final set (35/35 BASE_MBPS identical)
+4,"Conventional 7-cell fine-tuning (B2, S2-FT1)","7-cell wraparound, 35 users",1..35,frozen 7-cell director (prepare7.py),1.676352664207,1.674505154990,-0.001847509217,6.791394,0.010134,identical protected 7-cell final set (35/35 BASE_MBPS identical)

@@ -1,0 +1,8 @@
+# Reference environment: Python 3.12.10, CPU only. verify/verify_results.py needs no packages.
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.14.1+cpu
+numpy==2.5.1
+# Optional, only for the offline MQFT reference in evaluator/2cell/prepare.py:
+# cvxpy==1.9.2
+# clarabel==0.11.1
+# scs==3.3.1
