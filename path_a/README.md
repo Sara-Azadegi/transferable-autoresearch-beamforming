@@ -1,34 +1,82 @@
-# Path A: direct 7-cell autoresearch
+# Path A — Direct 7-Cell Autoresearch
 
-An AI agent ran autoresearch directly on the 7-cell wraparound network (35 users,
-K<sub>q</sub> = 1..35) under the charter `campaign/program.md`. It started from a generic MLP
-seed, written and run by the experimenter, and received nothing from the 2-cell campaign.
+Path A investigates **independent autonomous beamforming algorithm discovery** directly on a 7-cell wraparound MU-MIMO network comprising 35 users. The campaign optimizes the percentile-based beamforming objective across all 35 percentile targets.
 
-| File | Contents |
+Starting from a generic multilayer perceptron (MLP) candidate, the AI agent autonomously explored algorithmic designs under a frozen evaluation protocol and research charter. Crucially, **Path A received no architecture, learned parameters, features, or experimental information from the 2-cell campaign**, ensuring an independent target-scale comparison.
+
+## Discovered Beamforming Architecture
+
+The campaign produced a **Transformer-based beamforming policy** combining learned relational processing with communication-aware beamformer construction.
+
+Its main components include:
+
+- **User-token Transformer:** Represents users using physically motivated channel and interference features.
+- **Interference-aware attention:** Incorporates pairwise interference information into attention biases.
+- **KKT-inspired beamformer:** Predicts power-related variables, including per-BS multipliers and user-dependent interference weights.
+- **MMSE-aware refinement:** Applies three additional receive-aware stages, yielding a four-stage beamforming policy.
+
+**Selected champion:** `UserTransformerDualBF4StageRelMu` (Run-18), with 275,106 trainable parameters.
+
+## Campaign Summary
+
+| Metric | Recorded result |
 |---|---|
-| `campaign/champion_run18.pt` | **Champion (Run-18)**: `UserTransformerDualBF4StageRelMu`, 275,106 parameters. A user-token Transformer with pairwise interference attention biases, a KKT-inspired dual-variable beamformer and three MMSE-aware refinement stages |
-| `campaign/train.py` | Champion source, byte-identical in code to the Run-18 commit. It ends with the agent's append-only changelog: hypothesis, falsifier, result and decision for each experiment, and the early-stop rationale |
-| `campaign/prepare7.py`, `director_rescore.py`, `program.md`, `requirements.txt` | Frozen evaluator files (identical to `../evaluator/7cell/`). The director requires them next to `train.py` |
-| `log.csv` | All 24 runs: family, commit, training time, selection score, per-K<sub>q</sub> scores and COMMIT/REVERT status |
+| Network | 7-cell wraparound, 35 users |
+| Initial candidate | Generic MLP |
+| Launched runs | 24, including the initial seed |
+| Architecture families | 3 |
+| Maximum permitted experiments | 50 |
+| Commit threshold | \(S_{\mathrm{new}} > S_{\mathrm{best}} + 0.0005\) |
+| Cumulative candidate-training time | 8,766 s |
+| Stopping criterion | Approved early stop after five consecutive non-improving runs |
 
-**Campaign:**
+The campaign retained a permanent record of experimental hypotheses, outcomes, and commit/revert decisions.
 
-* Seed run 0 plus 23 agent-launched experiments, out of a cap of 50: 15 COMMIT and 9 REVERT.
-* Three architecture families.
-* Commit rule: S<sub>new</sub> > S<sub>best</sub> + 0.0005.
-* 8,766.3 s of training in total; stopped early after 5 consecutive non-commits.
+## Performance
 
-**Scores:** selection 1.686715818726 (best of 24); protected final test **1.684941922076**.
+| Evaluation | Normalized SLqP score |
+|---|---:|
+| Model-selection score | 1.687 |
+| Protected-final score | **1.685** |
 
-## Commands (run from `path_a/campaign/`)
+The protected-final score was obtained from 250 independent channel realizations after the champion was frozen. Model-selection and protected-final results are reported separately.
+
+## Repository Contents
+
+| File | Description |
+|---|---|
+| `campaign/champion_run18.pt` | Trained checkpoint of the selected Transformer champion |
+| `campaign/train.py` | Run-18 implementation, training procedure, and append-only experimental changelog |
+| `campaign/prepare7.py` | Frozen 7-cell system model and evaluation preparation |
+| `campaign/director_rescore.py` | Independent evaluator for selection-set scoring |
+| `campaign/program.md` | Frozen research charter governing autonomous experimentation |
+| `campaign/requirements.txt` | Campaign-specific dependencies |
+| `log.csv` | Complete campaign log containing experiment outcomes, scores, training times, and commit/revert decisions |
+
+The frozen evaluator files are also available in [`../evaluator/7cell/`](../evaluator/7cell/).
+
+## Re-Evaluation and Training
+
+Run the following commands from `path_a/campaign/`.
+
+**Re-evaluate the frozen champion on the selection set:**
 
 ```bash
-# Re-score the champion on the selection set. Expected last line:
-# DIRECTOR_HELDOUTSCORE 1.686715818726
 python director_rescore.py champion_run18.pt --hash-file ../../evaluator/7cell/DIRECTOR_HASHES.sha256
+```
 
-# Retrain with the Run-18 recipe (seeds 2027/789; must finish within 600 s). Writes last_model.pt.
+Expected final output:
+
+```text
+DIRECTOR_HELDOUTSCORE 1.686715818726
+```
+
+**Run the archived Run-18 training procedure:**
+
+```bash
 python train.py
 ```
 
-These commands were not re-run when this repository was prepared.
+This training command uses the recorded seeds (2027/789), has a 600-second computational limit, and writes `last_model.pt`.
+
+**Reproducibility note:** These commands were provided but were not re-executed during repository preparation. The protected-final evaluation cannot be independently rerun using the released files because its evaluation seed is not published. Recorded results can instead be checked through [`../verify/`](../verify/).
